@@ -19,7 +19,7 @@ end)
 -- Citizen.CreateThread(function()
 --     while true do
 --         Citizen.Wait(1000)
---         print(GetEntityCoords(PlayerPedId()))
+--         print(GetEntityCoords(PlayerPedId()).." "..GetEntityHeading(PlayerPedId()))
 --     end
 -- end)
 
@@ -28,20 +28,31 @@ local zones = {
     docks2 = vector3(72.188, -2723.332, 5.640);
     docks3 = vector3(767.764, -2976.236, 5.436);
     elysian = vector3(1732.646, -1572.726, 112.251);
-    mine = vector3(2691.211, 2749.734, 36.684);
-    hdepot = vector3(2668.795, 3526.945, 51.554);
-    hlabs = vector3(3473.114, 3678.832, 33.029);
+    mine = vector3(2691.211, 2749.734, 37.1);
+    hdepot = vector3(2668.795, 3526.945, 52);
+    hlabs = vector3(3473.114, 3678.832, 33.5);
     chicken = vector3(11.735, 6276.994, 31.052);
     salvage = vector3(-189.377, 6290.231, 31.471);
 }
 
 local trailers ={
-    elysian = vector3(1716.545, -1569.526, 112.620)
+    elysian = vector4(1716.545, -1569.526, 112.620,0);
+    docks1 = vector4(-148.81,-2416.43,6.070,182.84);
+    docks2 = vector4(86.71, -2701.15, 6,169.38);
+    docks3 = vector4(760.99, -2951, 5.8,178.94);
+    mine = vector4(2713.211, 2761.734, 36.684,125.01);
+    hdepot = vector4(2674.1, 3518.9, 52.71,337.01);
+    hlabs = vector4(3454.095, 3681.153, 33.029,353.656);
+    chicken = vector4(41.709, 6291.526, 31.253,117.127);
+    salvage = vector4(-168.399, 6273.351, 31.559,45.110);
 }
 
 local hasAlreadyEnteredMarker, isInMarker, where
 
 local jobs = {}
+local activejob
+local trailerplate
+
 function openContractMenu(start)
     ESX.UI.Menu.CloseAll()
     local elements = {}
@@ -56,7 +67,13 @@ function openContractMenu(start)
         elements = elements
     }, function(data,menu)
         local action = data.current.value
-        if action == 'take_job' then
+        if action == 'take_job' and activejob == nil then
+            activejob={
+                start=data.current.start,
+                dest=data.current.dest,
+                type=data.current.type,
+                pay=data.current.pay,
+        }
             spawnTrailer(data.current.start,data.current.dest,data.current.type)
             for k,v in pairs(elements) do
                 if data.current.label == elements[k].label then
@@ -72,6 +89,8 @@ function openContractMenu(start)
                     table.remove(jobs,k)
                 end
             end
+        else
+            TriggerEvent('esx:showNotification',"You already have an active delivery")
         end
         menu.close()
     end)
@@ -89,9 +108,9 @@ end
 function spawnTrailer(start,dest,type)
     local hash
     if type=="Liquid" then
-        hash=GetHashKey("tanker")
+        hash=GetHashKey("tanker2")
     else
-        local random= math.random(7)
+        local random= math.random(6)
         if random == 1 then
             hash=GetHashKey("trailerlogs")
         elseif random == 2 then
@@ -101,8 +120,6 @@ function spawnTrailer(start,dest,type)
         elseif random == 4 then
             hash=GetHashKey("tr4")
         elseif random == 5 then
-            hash=GetHashKey("trailerlarge")
-        elseif random == 6 then
             hash=GetHashKey("trailers4")
         else
             hash=GetHashKey("freighttrailer")
@@ -115,11 +132,11 @@ function spawnTrailer(start,dest,type)
         print("Attempting to spawn trailer")
         Citizen.Wait(0)
     end
-
-    print(start)
-    trailer = CreateVehicle(trailerhash, trailers[start].x, trailers[start].y, trailers[start].z, 0.0, true, false)
+    local truck = GetVehiclePedIsIn(GetPlayerPed(-1),false)
+    trailer = CreateVehicle(hash, trailers[start].x, trailers[start].y, trailers[start].z, trailers[start].w, true, false)
     SetEntityAsMissionEntity(trailer, true, true)
-    AttachVehicleToTrailer(truck, trailer, 1.1)
+    --AttachVehicleToTrailer(truck, trailer, 1.1)
+    trailerplate=GetVehicleNumberPlateText(trailer)
 
     --set delivery
     delivery=AddBlipForCoord(zones[dest].x,zones[dest].y,zones[dest].z)
@@ -132,7 +149,23 @@ function spawnTrailer(start,dest,type)
     AddTextComponentString("Delivery point")
     EndTextCommandSetBlipName(deliveryblip)
   
-  SetBlipRoute(deliveryblip, true) --Add the route to the blip
+    SetBlipRoute(delivery, true) --Add the route to the blip
+end
+
+function deliverTrailer()
+    local truck = GetVehiclePedIsIn(GetPlayerPed(-1),false)
+    print(truck)
+    local isTrailer, trailerid = GetVehicleTrailerVehicle(truck)
+    current_trailer=GetVehicleNumberPlateText(trailerid)
+    print(current_trailer)
+    if current_trailer == trailerplate then
+        TriggerServerEvent('fd_trucking:pay',activejob.pay)
+        DeleteVehicle(trailerid)
+        activejob=nil
+    else
+        print("Attempted to deliver a wrong trailer")
+    end
+
 end
 
 local zoneLength = tablelength(zones)
@@ -191,13 +224,19 @@ Citizen.CreateThread(function()
         local distance
         for k,v in pairs(zones) do
             distance = Vdist(playerCoords.x,playerCoords.y,playerCoords.z, v.x,v.y,v.z)
-            --print(distance)
+            --print(k.." "..distance)
             if distance < 500 then
                 DrawMarker(39, v.x,v.y,v.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0, 255, 0, 100, false, true, 2, true, false, false, false)
                 if distance < 5 then
                     isInMarker = true
+                    if activejob~=nil then
+                        if k == activejob.dest then
+                            deliverTrailer()
+                        end
+                    else
                     ESX.ShowNotification("Press E to Interact")
                     where = k
+                    end
                 end
             end
         end
@@ -209,13 +248,14 @@ Citizen.CreateThread(function()
     while true do
         Citizen.Wait(0)
         local vehicle = GetVehiclePedIsIn(GetPlayerPed(-1),false)
-        local name = (GetDisplayNameFromVehicleModel(GetEntityModel(vehicle)))
+        local name = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle))
         if isInMarker and IsControlJustPressed(0,38) then
-            if name =='PHANTOM' or 'PACKER' or 'PHANTOM3' or 'HAULER' then
+            if name == 'PHANTOM' or name == 'PACKER' or name == 'PHANTOM3' or name == 'HAULER' then
                 print("Big truck 4Head")
                 openContractMenu(where)
             else
-                ESX.ShowNotification("Come back with a Semi")
+                print("Yes hello little leg man")
+                TriggerEvent('esx:showNotification',"Come back with a semi")
             end
         end
 
