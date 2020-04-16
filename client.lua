@@ -36,9 +36,9 @@ local zones = {
 }
 
 local trailers ={
-    elysian = vector4(1716.545, -1569.526, 112.620,0);
+    elysian = vector4(1716.545, -1569.526, 112.620,180);
     docks1 = vector4(-148.81,-2416.43,6.070,182.84);
-    docks2 = vector4(86.71, -2701.15, 6,169.38);
+    docks2 = vector4(86.71, -2706.15, 6.3,169.38);
     docks3 = vector4(760.99, -2951, 5.8,178.94);
     mine = vector4(2713.211, 2761.734, 36.684,125.01);
     hdepot = vector4(2674.1, 3518.9, 52.71,337.01);
@@ -50,12 +50,12 @@ local trailers ={
 local hasAlreadyEnteredMarker, isInMarker, where
 
 local jobs = {}
-local activejob
-local trailerplate
+local activejob,deliveryblip
+local trailerplate, trailer
 
 function openContractMenu(start)
     ESX.UI.Menu.CloseAll()
-    local elements = {}
+    local elements = {{label='Abandon Current Job', value='quit_job'}}
     for k,v in pairs(jobs) do
         if v[1] == start then
             table.insert(elements,{label='Dest: '..v[2]..' Type: '..v[3]..' Pay: '..v[4]..'',start=v[1],dest=v[2],type=v[3],pay=v[4], value='take_job'})
@@ -77,7 +77,6 @@ function openContractMenu(start)
             spawnTrailer(data.current.start,data.current.dest,data.current.type)
             for k,v in pairs(elements) do
                 if data.current.label == elements[k].label then
-                    print("Attempting to remove from elements at :"..k)
                     table.remove(elements,k)
                     break
                 end
@@ -85,10 +84,13 @@ function openContractMenu(start)
 
             for k,v in pairs(jobs) do
                 if v[2]==data.current.dest and v[3]==data.current.type and v[4]==data.current.pay then
-                    print("Attempting to remove from jobs at :"..k)
                     table.remove(jobs,k)
                 end
             end
+        elseif action == 'quit_job' then
+            activejob = nil
+            DeleteVehicle(trailer)
+            RemoveBlip(deliveryblip)
         else
             TriggerEvent('esx:showNotification',"You already have an active delivery")
         end
@@ -122,14 +124,13 @@ function spawnTrailer(start,dest,type)
         elseif random == 5 then
             hash=GetHashKey("trailers4")
         else
-            hash=GetHashKey("freighttrailer")
+            hash=GetHashKey("trailers3")
         end
     end
     
     RequestModel(hash)
     while not HasModelLoaded(hash) do
         RequestModel(hash)
-        print("Attempting to spawn trailer")
         Citizen.Wait(0)
     end
     local truck = GetVehiclePedIsIn(GetPlayerPed(-1),false)
@@ -139,7 +140,7 @@ function spawnTrailer(start,dest,type)
     trailerplate=GetVehicleNumberPlateText(trailer)
 
     --set delivery
-    delivery=AddBlipForCoord(zones[dest].x,zones[dest].y,zones[dest].z)
+    deliveryblip=AddBlipForCoord(zones[dest].x,zones[dest].y,zones[dest].z)
     SetBlipSprite(deliveryblip, 304)
     SetBlipDisplay(deliveryblip, 4)
     SetBlipScale(deliveryblip, 1.0)
@@ -149,18 +150,27 @@ function spawnTrailer(start,dest,type)
     AddTextComponentString("Delivery point")
     EndTextCommandSetBlipName(deliveryblip)
   
-    SetBlipRoute(delivery, true) --Add the route to the blip
+    SetBlipRoute(deliveryblip, true) --Add the route to the blip
 end
 
 function deliverTrailer()
     local truck = GetVehiclePedIsIn(GetPlayerPed(-1),false)
-    print(truck)
     local isTrailer, trailerid = GetVehicleTrailerVehicle(truck)
     current_trailer=GetVehicleNumberPlateText(trailerid)
-    print(current_trailer)
     if current_trailer == trailerplate then
-        TriggerServerEvent('fd_trucking:pay',activejob.pay)
+        local health = GetVehicleBodyHealth(trailerid)
+        local pay = activejob.pay
+        if health < 900 then
+            pay = pay*(health/1500)
+            TriggerEvent('esx:showNotification', "Trailer was damaged so payment was reduced")
+            if health < 100 then
+                pay=0
+                TriggerEvent('esx:showNotification', "Trailer was too damaged so no payment received")
+            end
+        end
+        TriggerServerEvent('fd_trucking:pay',pay)
         DeleteVehicle(trailerid)
+        RemoveBlip(deliveryblip)
         activejob=nil
     else
         print("Attempted to deliver a wrong trailer")
@@ -189,11 +199,13 @@ function createNewJob(start)
     else
         type="Liquid"
     end
-    local pay = math.ceil(Vdist(zones[dest],zones[start])*0.05)
+    local pay = math.ceil(Vdist(zones[dest],zones[start])*0.10)
     if type == "Liquid" then
         pay = math.ceil(pay*1.2)
     end
-    table.insert(jobs,{start, dest, type, pay})
+    if start ~= dest then
+        table.insert(jobs,{start, dest, type, pay})
+    end
 end
 
 Citizen.CreateThread(function()
@@ -251,7 +263,6 @@ Citizen.CreateThread(function()
         local name = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle))
         if isInMarker and IsControlJustPressed(0,38) then
             if name == 'PHANTOM' or name == 'PACKER' or name == 'PHANTOM3' or name == 'HAULER' then
-                print("Big truck 4Head")
                 openContractMenu(where)
             else
                 print("Yes hello little leg man")
